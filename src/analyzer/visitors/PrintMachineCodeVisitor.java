@@ -179,7 +179,7 @@ public class PrintMachineCodeVisitor implements ParserVisitor {
     /**
      * This function should generate the LD and ST when needed.
      */
-    public String chooseRegister(String variable, HashSet<String> life, NextUse next, boolean loadIfNotFound) {
+    private String chooseRegister(String variable, HashSet<String> life, NextUse next, boolean loadIfNotFound) {
         int registerNumber = 0;
         int index1 = -1;
 
@@ -306,10 +306,6 @@ public class PrintMachineCodeVisitor implements ParserVisitor {
 
         public NextUse() {}
 
-        public NextUse(HashMap<String, ArrayList<Integer>> nextUse) {
-            this.nextUse = nextUse;
-        }
-
         public ArrayList<Integer> get(String s) {
             return nextUse.get(s);
         }
@@ -328,11 +324,6 @@ public class PrintMachineCodeVisitor implements ParserVisitor {
                 items.add(String.format("%s:%s", key, nextUse.get(key)));
             }
             return String.join(", ", items);
-        }
-
-        @Override
-        public Object clone() {
-            return new NextUse((HashMap<String, ArrayList<Integer>>) nextUse.clone());
         }
     }
 
