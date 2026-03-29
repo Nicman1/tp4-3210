@@ -269,8 +269,7 @@ public class PrintMachineCodeVisitor implements ParserVisitor {
      * Print the machine code in the output file
      */
     public void printMachineCode() {
-        // TODO (ex4): Print the machine code in the output file.
-        for (int i = 0; i < CODE.size(); i++) { // print the output
+        for (int i = 0; i < CODE.size(); i++) {
             m_writer.println("// Step " + i);
             String leftReg = chooseRegister(CODE.get(i).LEFT, CODE.get(i).Life_IN, CODE.get(i).Next_IN, true);
             String rightReg = chooseRegister(CODE.get(i).RIGHT, CODE.get(i).Life_IN, CODE.get(i).Next_IN, true);
@@ -280,7 +279,6 @@ public class PrintMachineCodeVisitor implements ParserVisitor {
             m_writer.println(CODE.get(i));
         }
 
-        // Handle return
         for (String ret: RETURNS) {
             if (REGISTERS.contains(ret) && MODIFIED.contains(ret)) {
                 m_writer.println("ST " + ret + ", R" + REGISTERS.indexOf(ret));
