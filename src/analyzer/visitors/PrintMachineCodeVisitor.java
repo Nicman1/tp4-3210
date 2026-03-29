@@ -6,7 +6,7 @@ import java.io.PrintWriter;
 import java.util.*;
 
 public class PrintMachineCodeVisitor implements ParserVisitor {
-    private PrintWriter m_writer = null;
+    private final PrintWriter m_writer;
 
     private int MAX_REGISTERS_COUNT = 256;
 
@@ -72,29 +72,32 @@ public class PrintMachineCodeVisitor implements ParserVisitor {
 
     @Override
     public Object visit(ASTAssignStmt node, Object data) {
-        // TODO (ex1): Modify CODE to add the needed MachLine.
-        // Here the type of Assignment is "assigned = left op right".
-        // You can pass null as data to children.
+        String assignTo = (String) node.jjtGetChild(0).jjtAccept(this, null);
+        String left = (String) node.jjtGetChild(1).jjtAccept(this, null);
+        String right = (String) node.jjtGetChild(2).jjtAccept(this, null);
+        String op = node.getOp();
+
+        CODE.add(new MachineCodeLine(op, assignTo, left, right));
 
         return null;
     }
 
     @Override
     public Object visit(ASTAssignUnaryStmt node, Object data) {
-        // TODO (ex1): Modify CODE to add the needed MachLine.
-        // Here the type of Assignment is "assigned = - right".
-        // Suppose the left part to be the constant "#O".
-        // You can pass null as data to children.
+        String assignTo = (String) node.jjtGetChild(0).jjtAccept(this, null);
+        String right = (String) node.jjtGetChild(1).jjtAccept(this, null);
 
+        CODE.add(new MachineCodeLine("-", assignTo, "#", right));
         return null;
     }
 
     @Override
     public Object visit(ASTAssignDirectStmt node, Object data) {
-        // TODO (ex1): Modify CODE to add the needed MachLine.
-        // Here the type of Assignment is "assigned = right".
-        // Suppose the left part to be the constant "#O".
-        // You can pass null as data to children.
+        String assignTo = (String) node.jjtGetChild(0).jjtAccept(this, null);
+        String right = (String) node.jjtGetChild(1).jjtAccept(this, null);
+
+
+        CODE.add(new MachineCodeLine("+", assignTo, "#0", right));
 
         return null;
     }
@@ -106,7 +109,7 @@ public class PrintMachineCodeVisitor implements ParserVisitor {
 
     @Override
     public Object visit(ASTIntValue node, Object data) {
-        return "#" + node.getValue();
+        return "#"+node.getValue();
     }
 
     @Override
@@ -115,25 +118,150 @@ public class PrintMachineCodeVisitor implements ParserVisitor {
     }
 
     private void computeLifeVar() {
-        // TODO (ex2): Implement life variables algorithm on the CODE array.
+        for (MachineCodeLine mach : this.CODE) {
+            mach.Life_IN = new HashSet<>();
+            mach.Life_OUT = new HashSet<>();
+        }
+
+        if (!this.CODE.isEmpty()) {
+            this.CODE.get(this.CODE.size() - 1).Life_OUT.addAll(RETURNS);
+        }
+
+        for (int i = this.CODE.size() - 1; i >= 0; i--) {
+            MachineCodeLine current = this.CODE.get(i);
+
+            if (i < this.CODE.size() - 1) {
+                current.Life_OUT = new HashSet<>(this.CODE.get(i + 1).Life_IN);
+            }
+
+            HashSet<String> newLifeIn = new HashSet<>(current.Life_OUT);
+            newLifeIn.removeAll(current.DEF);
+            newLifeIn.addAll(current.REF);
+
+            current.Life_IN = newLifeIn;
+
+
+        }
     }
 
+
     private void computeNextUse() {
-        // TODO (ex3): Implement next-use algorithm on the CODE array.
+        if(CODE.isEmpty()) return;
+
+        for (int i = CODE.size() - 1; i >=0 ; i--) {
+            MachineCodeLine current = CODE.get(i);
+
+            if (i < CODE.size() - 1) {
+                current.Next_OUT = CODE.get(i + 1).Next_IN;
+            }
+            NextUse in = new NextUse();
+            for(String var : current.Next_OUT.nextUse.keySet()) {
+                if(!current.DEF.contains(var)) {
+                    ArrayList<Integer> uses = current.Next_OUT.get(var);
+
+                    for(int useIndex: uses) {
+                        in.add(var, useIndex);
+                    }
+                }
+            }
+
+            for(String ref: current.REF) {
+                in.add(ref, i);
+            }
+
+            current.Next_IN = in;
+
+        }
+
+
     }
 
     /**
      * This function should generate the LD and ST when needed.
      */
     public String chooseRegister(String variable, HashSet<String> life, NextUse next, boolean loadIfNotFound) {
-        // TODO (ex4): if variable is a constant (starts with '#'), return variable
-        // TODO (ex4): if REGISTERS contains variable, return "R" + index
-        // TODO (ex4): if REGISTERS size is not max (< MAX_REGISTERS_COUNT), add variable to REGISTERS and return "R" + index
-        // TODO (ex4): if REGISTERS has max size:
-        // - put variable in space of an other variable which is not used anymore
-        // *or*
-        // - put variable in space of variable which as the largest next-use
+        int registerNumber = 0;
+        int index1 = -1;
 
+        if (variable.startsWith("#")) {
+            return variable;
+        }
+
+        if(loadIfNotFound ){
+            MODIFIED.add(variable);
+        }
+
+        int index = REGISTERS.indexOf(variable);
+        if(REGISTERS.contains(variable)){
+            return "R" + index;
+        }
+
+        if (REGISTERS.size() < MAX_REGISTERS_COUNT) {
+            REGISTERS.add(variable);
+
+            if (loadIfNotFound) {
+                m_writer.println("LD " + "R" + (REGISTERS.size() - 1) + ", " + variable);
+            }
+
+            return "R" + (REGISTERS.size() - 1);
+
+        }
+        if (REGISTERS.size() == MAX_REGISTERS_COUNT){
+
+            for(int i = 0; i<this.REGISTERS.size(); i++){
+
+                if(!(next.nextUse.containsKey(this.REGISTERS.get(i))) && this.MODIFIED.contains(this.REGISTERS.get(i)) && RETURNS.contains(this.REGISTERS.get(i))) {
+                    m_writer.println("ST " + this.REGISTERS.get(i) + ", " + "R" + i);
+
+                    this.MODIFIED.remove(this.REGISTERS.get(i));
+                    m_writer.println("LD " + "R" + i + ", " + variable);
+                    this.REGISTERS.set(i, variable);
+                    return "R" + i;
+                }
+
+            }
+
+            for(int i = 0; i < this.REGISTERS.size(); i++) {
+                if (!life.contains(this.REGISTERS.get(i))) {
+                    this.REGISTERS.set(i, variable);
+                    if (!loadIfNotFound ) {
+                        m_writer.println("LD " + "R" + i + ", " + variable);
+                    }
+                    return "R" + i;
+                }
+            }
+
+
+            for(int i = 0; i < this.REGISTERS.size(); i++) {
+
+                if (next.nextUse.containsKey(this.REGISTERS.get(i))) {
+                    if (index1 < Collections.min(next.nextUse.get(this.REGISTERS.get(i)))) {
+                        registerNumber = i;
+                        index1 = Collections.min(next.nextUse.get(this.REGISTERS.get(i)));
+                    }
+                } else {
+                    if (this.MODIFIED.contains(this.REGISTERS.get(i))) {
+                        this.MODIFIED.remove(this.REGISTERS.get(i));
+                        m_writer.println("ST " + this.REGISTERS.get(i) + ", " + "R" + i);
+                    }
+                    this.REGISTERS.set(i, variable);
+                    if (!loadIfNotFound) {
+                        m_writer.println("LD " + "R" + i + ", " + variable);
+                    }
+                    return "R" + i;
+                }
+
+
+                if (0 < registerNumber) {
+                    this.REGISTERS.set(registerNumber, variable);
+                    if (!loadIfNotFound) {
+                        m_writer.println("LD " + "R" + registerNumber + ", " + variable);
+                    }
+                    return "R" + registerNumber;
+                }
+            }
+
+        }
         return null;
     }
 
@@ -142,10 +270,21 @@ public class PrintMachineCodeVisitor implements ParserVisitor {
      */
     public void printMachineCode() {
         // TODO (ex4): Print the machine code in the output file.
-        // You should change the code below.
-        for (int i = 0; i < CODE.size(); i++) {
+        for (int i = 0; i < CODE.size(); i++) { // print the output
             m_writer.println("// Step " + i);
+            String leftReg = chooseRegister(CODE.get(i).LEFT, CODE.get(i).Life_IN, CODE.get(i).Next_IN, true);
+            String rightReg = chooseRegister(CODE.get(i).RIGHT, CODE.get(i).Life_IN, CODE.get(i).Next_IN, true);
+            String assignReg = chooseRegister(CODE.get(i).ASSIGN, CODE.get(i).Life_OUT, CODE.get(i).Next_OUT, false);
+            MODIFIED.add(CODE.get(i).ASSIGN);
+            m_writer.println(CODE.get(i).OPERATION + " " + assignReg + ", " + leftReg + ", " + rightReg);
             m_writer.println(CODE.get(i));
+        }
+
+        // Handle return
+        for (String ret: RETURNS) {
+            if (REGISTERS.contains(ret) && MODIFIED.contains(ret)) {
+                m_writer.println("ST " + ret + ", R" + REGISTERS.indexOf(ret));
+            }
         }
     }
 
