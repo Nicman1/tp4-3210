@@ -1,0 +1,7 @@
+NUMBER_OF_REGISTER_AVAILABLE: 256
+
+t0 = minus a
+t1 = t0 - 3
+b = t1
+
+return a,b

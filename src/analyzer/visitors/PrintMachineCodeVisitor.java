@@ -6,7 +6,7 @@ import java.io.PrintWriter;
 import java.util.*;
 
 public class PrintMachineCodeVisitor implements ParserVisitor {
-    private final PrintWriter m_writer;
+    private PrintWriter m_writer = null;
 
     private int MAX_REGISTERS_COUNT = 256;
 
@@ -22,7 +22,7 @@ public class PrintMachineCodeVisitor implements ParserVisitor {
         m_writer = writer;
 
         OPERATIONS.put("+", "ADD");
-        OPERATIONS.put("-", "MIN");
+        OPERATIONS.put("-", "SUB");
         OPERATIONS.put("*", "MUL");
         OPERATIONS.put("/", "DIV");
     }
@@ -87,7 +87,7 @@ public class PrintMachineCodeVisitor implements ParserVisitor {
         String assignTo = (String) node.jjtGetChild(0).jjtAccept(this, null);
         String right = (String) node.jjtGetChild(1).jjtAccept(this, null);
 
-        CODE.add(new MachineCodeLine("-", assignTo, "#", right));
+        CODE.add(new MachineCodeLine("-", assignTo, "#0", right));
         return null;
     }
 
@@ -109,7 +109,7 @@ public class PrintMachineCodeVisitor implements ParserVisitor {
 
     @Override
     public Object visit(ASTIntValue node, Object data) {
-        return "#"+node.getValue();
+        return "#" + node.getValue();
     }
 
     @Override
@@ -139,21 +139,20 @@ public class PrintMachineCodeVisitor implements ParserVisitor {
             newLifeIn.addAll(current.REF);
 
             current.Life_IN = newLifeIn;
-
-
         }
     }
 
 
     private void computeNextUse() {
-        if(CODE.isEmpty()) return;
+        if (CODE.isEmpty()) return;
 
         for (int i = CODE.size() - 1; i >=0 ; i--) {
             MachineCodeLine current = CODE.get(i);
 
             if (i < CODE.size() - 1) {
-                current.Next_OUT = CODE.get(i + 1).Next_IN;
+                current.Next_OUT = (NextUse) CODE.get(i + 1).Next_IN.clone();
             }
+
             NextUse in = new NextUse();
             for(String var : current.Next_OUT.nextUse.keySet()) {
                 if(!current.DEF.contains(var)) {
@@ -170,98 +169,83 @@ public class PrintMachineCodeVisitor implements ParserVisitor {
             }
 
             current.Next_IN = in;
-
         }
-
-
     }
 
     /**
      * This function should generate the LD and ST when needed.
      */
-    private String chooseRegister(String variable, HashSet<String> life, NextUse next, boolean loadIfNotFound) {
-        int registerNumber = 0;
-        int index1 = -1;
-
+    public String chooseRegister(String variable, HashSet<String> life, NextUse next, boolean loadIfNotFound) {
         if (variable.startsWith("#")) {
             return variable;
         }
 
-        if(loadIfNotFound ){
-            MODIFIED.add(variable);
-        }
-
         int index = REGISTERS.indexOf(variable);
-        if(REGISTERS.contains(variable)){
+        if (index >= 0) {
             return "R" + index;
         }
 
         if (REGISTERS.size() < MAX_REGISTERS_COUNT) {
             REGISTERS.add(variable);
-
             if (loadIfNotFound) {
-                m_writer.println("LD " + "R" + (REGISTERS.size() - 1) + ", " + variable);
+                m_writer.println("LD R" + (REGISTERS.size() - 1) + ", " + variable);
             }
-
             return "R" + (REGISTERS.size() - 1);
-
         }
-        if (REGISTERS.size() == MAX_REGISTERS_COUNT){
 
-            for(int i = 0; i<this.REGISTERS.size(); i++){
-
-                if(!(next.nextUse.containsKey(this.REGISTERS.get(i))) && this.MODIFIED.contains(this.REGISTERS.get(i)) && RETURNS.contains(this.REGISTERS.get(i))) {
-                    m_writer.println("ST " + this.REGISTERS.get(i) + ", " + "R" + i);
-
-                    this.MODIFIED.remove(this.REGISTERS.get(i));
-                    m_writer.println("LD " + "R" + i + ", " + variable);
-                    this.REGISTERS.set(i, variable);
-                    return "R" + i;
+        for (int i = 0; i < REGISTERS.size(); i++) {
+            String current = REGISTERS.get(i);
+            if (!next.nextUse.containsKey(current) && MODIFIED.contains(current) && RETURNS.contains(current)) {
+                m_writer.println("ST " + current + ", R" + i);
+                MODIFIED.remove(current);
+                REGISTERS.set(i, variable);
+                if (loadIfNotFound) {
+                    m_writer.println("LD R" + i + ", " + variable);
                 }
-
+                return "R" + i;
             }
-
-            for(int i = 0; i < this.REGISTERS.size(); i++) {
-                if (!life.contains(this.REGISTERS.get(i))) {
-                    this.REGISTERS.set(i, variable);
-                    if (!loadIfNotFound ) {
-                        m_writer.println("LD " + "R" + i + ", " + variable);
-                    }
-                    return "R" + i;
-                }
-            }
-
-
-            for(int i = 0; i < this.REGISTERS.size(); i++) {
-
-                if (next.nextUse.containsKey(this.REGISTERS.get(i))) {
-                    if (index1 < Collections.min(next.nextUse.get(this.REGISTERS.get(i)))) {
-                        registerNumber = i;
-                        index1 = Collections.min(next.nextUse.get(this.REGISTERS.get(i)));
-                    }
-                } else {
-                    if (this.MODIFIED.contains(this.REGISTERS.get(i))) {
-                        this.MODIFIED.remove(this.REGISTERS.get(i));
-                        m_writer.println("ST " + this.REGISTERS.get(i) + ", " + "R" + i);
-                    }
-                    this.REGISTERS.set(i, variable);
-                    if (!loadIfNotFound) {
-                        m_writer.println("LD " + "R" + i + ", " + variable);
-                    }
-                    return "R" + i;
-                }
-
-
-                if (0 < registerNumber) {
-                    this.REGISTERS.set(registerNumber, variable);
-                    if (!loadIfNotFound) {
-                        m_writer.println("LD " + "R" + registerNumber + ", " + variable);
-                    }
-                    return "R" + registerNumber;
-                }
-            }
-
         }
+
+        for (int i = 0; i < REGISTERS.size(); i++) {
+            String current = REGISTERS.get(i);
+            if (!life.contains(current)) {
+                REGISTERS.set(i, variable);
+                if (loadIfNotFound) {
+                    m_writer.println("LD R" + i + ", " + variable);
+                }
+                return "R" + i;
+            }
+        }
+
+        int farthestNextUse = -1;
+        int selectedIndex = -1;
+        for (int i = 0; i < REGISTERS.size(); i++) {
+            String current = REGISTERS.get(i);
+            if (!next.nextUse.containsKey(current)) {
+                selectedIndex = i;
+                break;
+            }
+
+            int nextUse = Collections.min(next.get(current));
+            if (nextUse > farthestNextUse) {
+                farthestNextUse = nextUse;
+                selectedIndex = i;
+            }
+        }
+
+        if (selectedIndex >= 0) {
+            String current = REGISTERS.get(selectedIndex);
+            if (MODIFIED.contains(current) && life.contains(current)) {
+                m_writer.println("ST " + current + ", R" + selectedIndex);
+                MODIFIED.remove(current);
+            }
+            REGISTERS.set(selectedIndex, variable);
+            if (loadIfNotFound) {
+                m_writer.println("LD R" + selectedIndex + ", " + variable);
+            }
+            return "R" + selectedIndex;
+        }
+
         return null;
     }
 
@@ -271,17 +255,26 @@ public class PrintMachineCodeVisitor implements ParserVisitor {
     public void printMachineCode() {
         for (int i = 0; i < CODE.size(); i++) {
             m_writer.println("// Step " + i);
-            String leftReg = chooseRegister(CODE.get(i).LEFT, CODE.get(i).Life_IN, CODE.get(i).Next_IN, true);
-            String rightReg = chooseRegister(CODE.get(i).RIGHT, CODE.get(i).Life_IN, CODE.get(i).Next_IN, true);
-            String assignReg = chooseRegister(CODE.get(i).ASSIGN, CODE.get(i).Life_OUT, CODE.get(i).Next_OUT, false);
-            MODIFIED.add(CODE.get(i).ASSIGN);
-            m_writer.println(CODE.get(i).OPERATION + " " + assignReg + ", " + leftReg + ", " + rightReg);
-            m_writer.println(CODE.get(i));
+            MachineCodeLine line = CODE.get(i);
+            String leftReg = chooseRegister(line.LEFT, line.Life_IN, line.Next_IN, true);
+            String rightReg = chooseRegister(line.RIGHT, line.Life_IN, line.Next_IN, true);
+            String assignReg = chooseRegister(line.ASSIGN, line.Life_OUT, line.Next_OUT, false);
+
+            if (!MODIFIED.contains(line.ASSIGN)) {
+                MODIFIED.add(line.ASSIGN);
+            }
+
+            if (!(line.OPERATION.equals("ADD") && line.LEFT.equals("#0") && assignReg.equals(rightReg))) {
+                m_writer.println(line.OPERATION + " " + assignReg + ", " + leftReg + ", " + rightReg);
+            }
+            m_writer.println(line);
         }
 
-        for (String ret: RETURNS) {
-            if (REGISTERS.contains(ret) && MODIFIED.contains(ret)) {
-                m_writer.println("ST " + ret + ", R" + REGISTERS.indexOf(ret));
+        for (int i = 0; i < REGISTERS.size(); i++) {
+            String current = REGISTERS.get(i);
+            if (RETURNS.contains(current) && MODIFIED.contains(current)) {
+                m_writer.println("ST " + current + ", R" + i);
+                MODIFIED.remove(current);
             }
         }
     }
@@ -306,6 +299,10 @@ public class PrintMachineCodeVisitor implements ParserVisitor {
 
         public NextUse() {}
 
+        public NextUse(HashMap<String, ArrayList<Integer>> nextUse) {
+            this.nextUse = nextUse;
+        }
+
         public ArrayList<Integer> get(String s) {
             return nextUse.get(s);
         }
@@ -324,6 +321,11 @@ public class PrintMachineCodeVisitor implements ParserVisitor {
                 items.add(String.format("%s:%s", key, nextUse.get(key)));
             }
             return String.join(", ", items);
+        }
+
+        @Override
+        public Object clone() {
+            return new NextUse((HashMap<String, ArrayList<Integer>>) nextUse.clone());
         }
     }
 

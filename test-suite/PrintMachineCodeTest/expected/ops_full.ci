@@ -1,0 +1,23 @@
+// Step 0
+LD R0, a
+SUB R1, #0, R0
+// Life_IN  : [a]
+// Life_OUT : [a, t0]
+// Next_IN  : a:[0]
+// Next_OUT : t0:[1]
+
+// Step 1
+SUB R2, R1, #3
+// Life_IN  : [a, t0]
+// Life_OUT : [a, t1]
+// Next_IN  : t0:[1]
+// Next_OUT : t1:[2]
+
+// Step 2
+ADD R3, #0, R2
+// Life_IN  : [a, t1]
+// Life_OUT : [a, b]
+// Next_IN  : t1:[2]
+// Next_OUT : 
+
+ST b, R3
